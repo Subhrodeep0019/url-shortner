@@ -10,7 +10,6 @@ class Link(SQLModel, table=True):
     uid: UUID = Field(default_factory=uuid4, primary_key=True)
     short_code: str = Field(index=True, unique=True)
     long_url: str
-    custom_alias: str | None = Field(default=None,  unique=True, index=True)
     user_uid: UUID | None = Field(default=None, foreign_key="users.uid")
     expires_at: datetime | None = Field(default=None)
     is_active: bool = Field(default=True)

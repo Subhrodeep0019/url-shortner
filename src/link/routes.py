@@ -8,7 +8,6 @@ from src.link.service import get_link_service, LinkService
 
 from src.db.models import Link
 
-
 link_router = APIRouter()
 
 @link_router.post(
@@ -18,10 +17,10 @@ link_router = APIRouter()
 )
 async def shorten_url(
         link_payload: LinkCreateModel,
-        link_service: LinkService = Depends(get_link_service)
+        link_service: LinkService = Depends(get_link_service),
 ):
     link: Link = await link_service.create_link(link_payload)
-    short_ = f"{settings.BASE_URL}/r/{link.short_code}/"
+    short_ = f"{settings.BASE_URL}/r/{link.short_code}"
 
     return LinkResponseModel(
         uid=link.uid,
