@@ -11,9 +11,11 @@ class AliasTakenError(Exception):
     """The provided alias is already taken"""
     pass
 class CodeGenerationError(Exception):
-    """An unique short code can't be generated"""
+    """A unique short code can't be generated"""
     pass
-
+class LinkExpiredError(Exception):
+    """Link is already expired"""
+    pass
 
 def create_exception_handler(
         status_code: int,
@@ -60,3 +62,15 @@ def register_all_errors(app: FastAPI):
             }
         )
     )
+    app.add_exception_handler(
+        LinkExpiredError,
+        create_exception_handler(
+            status_code=status.HTTP_410_GONE,
+            initial_details={
+                "message": "Link is already expired",
+                "resolution": "Create a new link",
+                "error_code": "link_expired"
+            }
+        )
+    )
+

@@ -11,10 +11,12 @@ from src.db.db import get_session
 
 from src.link.schemas import LinkCreateModel
 
-from src.errors import ReservedAliasError, AliasTakenError, CodeGenerationError
+from src.errors import (ReservedAliasError, AliasTakenError,
+                        CodeGenerationError, LinkExpiredError)
 
 import string
 import json
+from datetime import datetime, timezone
 
 MAX_CODE_ATTEMPTS = 3
 BASE62 = string.digits + string.ascii_lowercase + string.ascii_uppercase
@@ -22,6 +24,15 @@ BANNED_WORDS = {"login", "signup", "verify", "account", "password", "reset", "su
                 "contact", "billing", "secure", "admin", "root", "home", "help", "about",
                 "urlshortner", "official"}
 
+
+def is_expired(expires_at: datetime | None) -> bool:
+    if expires_at is None:
+        return False
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    return expires_at <= now
+
+
+# service class
 class LinkService:
     # base 62 encoding algorithm
     @staticmethod
@@ -34,20 +45,45 @@ class LinkService:
             base //= 62
         return code
 
+
+
+
     def __init__(self, session: AsyncSession, redis: Redis):
         self.db_session = session
         self.redis_session = redis
+
+
+
 
     async def create_code(self) -> str:
         counter = await self.redis_session.incr("link_counter")
         return self.encode(counter)
 
-    async def cache_link(self,short_code: str, long_url: str, is_active: bool = True) -> None:
+
+
+
+    async def cache_link(self,short_code: str, long_url: str, is_active: bool = True, expires_at: datetime | None = None) -> None:
+        ex_ttl = None
+        if expires_at is not None:
+            if is_expired(expires_at):
+                return
+
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            ex_ttl = int((expires_at - now).total_seconds())
+            if ex_ttl <= 0:
+                return
+
         cache_data = json.dumps({
             "url": long_url,
-            "is_active": is_active
+            "is_active": is_active,
+            "expires_at": expires_at.isoformat() if expires_at else None
         })
-        await self.redis_session.set(short_code, cache_data)
+
+        # cache link
+        await self.redis_session.set(short_code, cache_data, ex=ex_ttl)
+
+
+
 
     async def create_link(self, link_payload: LinkCreateModel) -> Link:
         word = link_payload.custom_alias
@@ -56,7 +92,8 @@ class LinkService:
             raise ReservedAliasError()
 
         session = self.db_session
-        link_data = link_payload.model_dump(mode="json", exclude={"custom_alias"})
+        link_data = link_payload.model_dump(exclude={"custom_alias"})
+        link_data["long_url"] = str(link_payload.long_url)
 
         for _ in range(MAX_CODE_ATTEMPTS):
             short = word if word is not None else await self.create_code()
@@ -73,20 +110,21 @@ class LinkService:
                 continue
 
             # cache write
-            await self.cache_link(short, str(link_payload.long_url))
+            await self.cache_link(short, str(link_payload.long_url), expires_at=link_payload.expires_at)
             return new_link
 
         # can't generate unique short code even after 3 tries
         raise CodeGenerationError()
 
-    async def get_long_url(self, short_code) -> str | None:
 
+
+
+    async def get_long_url(self, short_code) -> str | None:
         # check cache first
         cache_data = await self.redis_session.get(short_code)
         if cache_data:
             data = json.loads(cache_data)
             return data["url"] if data["is_active"] else None
-
         # db hit
         statement = select(Link).where(Link.short_code==short_code)
         result = await self.db_session.exec(statement) # type: ignore[attr-defined]
@@ -97,9 +135,18 @@ class LinkService:
             return None
 
         # lazy load -> cache write after cache miss and db hit
-        await self.cache_link(short_code, str(link.long_url), link.is_active)
+        await self.cache_link(short_code, str(link.long_url), link.is_active, link.expires_at)
 
-        return link.long_url if link.is_active else None
+        # validating the link
+        if not link.is_active:
+            return None
+        if is_expired(link.expires_at):
+            raise LinkExpiredError()
+
+        return link.long_url
+
+
+
 
     async def soft_delete(self, short_code) -> bool:
         statement = select(Link).where(Link.short_code==short_code)
@@ -114,7 +161,7 @@ class LinkService:
         await self.db_session.commit()
 
         # update the cache record
-        await self.cache_link(short_code, str(link.long_url), False)
+        await self.cache_link(short_code, str(link.long_url), False, link.expires_at)
 
         return True
 

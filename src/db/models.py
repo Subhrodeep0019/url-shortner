@@ -24,12 +24,3 @@ class User(SQLModel, table=True):
     is_verified: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.now)
 
-class ClickLog(SQLModel, table=True):
-    __tablename__ = "click_logs"
-
-    uid: UUID = Field(default_factory=uuid4, primary_key=True)
-    links_uid: UUID = Field(foreign_key="links.uid", index=True)
-    timestamp: datetime = Field(default_factory=datetime.now, index=True)
-    referer: str | None = Field(default=None)
-    user_agent: str
-

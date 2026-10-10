@@ -8,7 +8,7 @@ from sqlmodel import SQLModel
 from alembic import context
 
 from src.config import settings
-from src.db.models import Link, User, ClickLog
+from src.db.models import Link, User
 
 
 db_url = settings.DATABASE_URL
