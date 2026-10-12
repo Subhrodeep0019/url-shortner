@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str
     BASE_URL: str = "http://localhost:8000"
+    CELERY_BROKER_URL: str
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
